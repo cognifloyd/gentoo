@@ -1,0 +1,154 @@
+make_unique moved from llvm:: to std::
+
+Also fix a few other missing prefixes
+
+--- a/include/tapi/Core/XPISet.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Core/XPISet.h	2020-12-19 15:49:56.000000000 +0100
+@@ -56,7 +56,7 @@
+   }
+ 
+   static unsigned getHashValue(const SymbolsMapKey &key) {
+-    return combineHashValue(hash_value(key.kind), hash_value(key.name));
++    return detail::combineHashValue(hash_value(key.kind), hash_value(key.name));
+   }
+ 
+   static bool isEqual(const SymbolsMapKey &lhs, const SymbolsMapKey &rhs) {
+--- a/lib/Driver/InstallAPIDriver.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/InstallAPIDriver.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -980,13 +980,13 @@
+   }
+ 
+ 
+-  auto headerSymbols = make_unique<XPISet>();
++  auto headerSymbols = std::make_unique<XPISet>();
+   for (auto &result : frontendResults) {
+     API2XPIConverter converter(headerSymbols.get(), result.target);
+     result.visit(converter);
+   }
+ 
+-  auto scanFile = make_unique<InterfaceFile>(std::move(headerSymbols));
++  auto scanFile = std::make_unique<InterfaceFile>(std::move(headerSymbols));
+   scanFile->addTargets(allTargets);
+   scanFile->setInstallName(opts.linkerOptions.installName);
+   scanFile->setCurrentVersion(opts.linkerOptions.currentVersion);
+--- a/lib/Core/Registry.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/Registry.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -150,7 +150,7 @@
+ }
+ 
+ void Registry::addYAMLReaders() {
+-  auto reader = make_unique<YAMLReader>();
++  auto reader = std::make_unique<YAMLReader>();
+   reader->add(
+       std::unique_ptr<DocumentHandler>(new stub::v1::YAMLDocumentHandler));
+   reader->add(
+@@ -163,7 +163,7 @@
+ }
+ 
+ void Registry::addYAMLWriters() {
+-  auto writer = make_unique<YAMLWriter>();
++  auto writer = std::make_unique<YAMLWriter>();
+   writer->add(
+       std::unique_ptr<DocumentHandler>(new stub::v1::YAMLDocumentHandler));
+   writer->add(
+@@ -176,7 +176,7 @@
+ }
+ 
+ void Registry::addDiagnosticReader() {
+-  add(make_unique<DiagnosticReader>());
++  add(std::make_unique<DiagnosticReader>());
+ }
+ 
+ TAPI_NAMESPACE_INTERNAL_END
+--- a/lib/Driver/HeaderGlob.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/HeaderGlob.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -38,7 +38,7 @@
+   if (!regex)
+     return regex.takeError();
+ 
+-  return make_unique<HeaderGlob>(globString, std::move(*regex), type);
++  return std::make_unique<HeaderGlob>(globString, std::move(*regex), type);
+ }
+ 
+ TAPI_NAMESPACE_INTERNAL_END
+--- a/lib/Frontend/APIVisitor.h	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Frontend/APIVisitor.h	2020-12-19 15:27:56.000000000 +0100
+@@ -98,7 +98,7 @@
+     context.ast = &compiler.getASTContext();
+     context.sourceMgr = &compiler.getSourceManager();
+     context.pp = compiler.getPreprocessorPtr();
+-    return llvm::make_unique<APIVisitor>(context);
++    return std::make_unique<APIVisitor>(context);
+   }
+ 
+   FrontendContext &context;
+--- a/include/tapi/Driver/SnapshotFileSystem.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Driver/SnapshotFileSystem.h	2020-12-19 15:27:56.000000000 +0100
+@@ -124,7 +124,7 @@
+ public:
+   SnapshotFileSystem(IntrusiveRefCntPtr<FileSystem> externalFS =
+                          llvm::vfs::getRealFileSystem())
+-      : root(llvm::make_unique<DirectoryEntry>("/")),
++      : root(std::make_unique<DirectoryEntry>("/")),
+         externalFS(std::move(externalFS)) {}
+ 
+   /// \brief Get the status of the entry at \p Path, if one exists.
+--- a/lib/Driver/SnapshotFileSystem.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/SnapshotFileSystem.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -151,7 +151,7 @@
+ 
+   auto status = getFileStatus(path, *externalStatus);
+   return std::unique_ptr<File>(
+-      make_unique<FileWithFixedStatus>(std::move(*result2), status));
++      std::make_unique<FileWithFixedStatus>(std::move(*result2), status));
+ }
+ 
+ class SnapshotDirIterImpl : public llvm::vfs::detail::DirIterImpl {
+@@ -242,7 +242,7 @@
+   if (auto ec = directory.getError())
+     return ec;
+   return cast<FileEntry>(directory.get()->addContent(
+-      make_unique<FileEntry>(filename, externalPath)));
++      std::make_unique<FileEntry>(filename, externalPath)));
+ }
+ 
+ ErrorOr<SnapshotFileSystem::SymlinkEntry *>
+@@ -254,7 +254,7 @@
+   if (auto ec = directory.getError())
+     return ec;
+   return cast<SymlinkEntry>(directory.get()->addContent(
+-      make_unique<SymlinkEntry>(filename, linkPath)));
++      std::make_unique<SymlinkEntry>(filename, linkPath)));
+ }
+ 
+ ErrorOr<SnapshotFileSystem::DirectoryEntry *>
+@@ -270,7 +270,7 @@
+       return cast<DirectoryEntry>(entry.get());
+   }
+   return cast<DirectoryEntry>(
+-      current->addContent(make_unique<DirectoryEntry>(name)));
++      current->addContent(std::make_unique<DirectoryEntry>(name)));
+ }
+ 
+ ErrorOr<SnapshotFileSystem::DirectoryEntry *>
+--- a/lib/Diagnostics/Diagnostics.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Diagnostics/Diagnostics.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -151,7 +151,7 @@
+   raw_ostream *os = &llvm::errs();
+   if (output != "-") {
+     // Create the output stream.
+-    auto fileOS = llvm::make_unique<llvm::raw_fd_ostream>(
++    auto fileOS = std::make_unique<llvm::raw_fd_ostream>(
+         output, ec, llvm::sys::fs::F_Append | llvm::sys::fs::F_Text);
+     if (ec) {
+       report(diag::err_cannot_open_file)
+@@ -165,7 +165,7 @@
+   diagOpts->DiagnosticLogFile = output.str();
+ 
+   // Chain in the diagnostic client which will log the diagnostics.
+-  auto Logger = llvm::make_unique<clang::LogDiagnosticPrinter>(
++  auto Logger = std::make_unique<clang::LogDiagnosticPrinter>(
+       *os, diagOpts.get(), std::move(streamOwner));
+   assert(diag->ownsClient());
+   diag->setClient(new clang::ChainedDiagnosticConsumer(diag->takeClient(),
+

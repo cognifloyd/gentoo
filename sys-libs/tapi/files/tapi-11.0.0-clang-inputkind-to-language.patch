@@ -1,0 +1,366 @@
+Use clang::Language instead of clang::InputKind::Language
+
+LangStandard* and InputKind::Language moved to Basic in
+LLVM 10+.
+
+--- a/lib/Driver/Snapshot.cpp	2017-12-24 15:27:56.000000000 +0100
++++ b/lib/Driver/Snapshot.cpp	2017-12-26 15:49:09.864184826 +0100
+@@ -23,7 +23,7 @@
+ 
+ using namespace llvm;
+ using namespace TAPI_INTERNAL;
+-using clang::InputKind;
++using clang::Language;
+ 
+ using Mapping = std::pair<std::string, uint64_t>;
+ using Reexports = std::pair<std::string, ArchitectureSet>;
+@@ -180,7 +180,7 @@
+     io.mapOptional("targets", opts.targets, std::vector<llvm::Triple>{});
+     io.mapOptional("target-variants", opts.targetVariants,
+                    std::vector<llvm::Triple>{});
+-    io.mapOptional("language", opts.language, InputKind::ObjC);
++    io.mapOptional("language", opts.language, Language::ObjC);
+     io.mapOptional("language-std", opts.language_std, std::string());
+     io.mapOptional("isysroot", opts.isysroot, std::string());
+     io.mapOptional("umbrella", opts.umbrella, std::string());
+--- a/include/tapi/Driver/Configuration.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Driver/Configuration.h	2020-12-19 15:49:56.000000000 +0100
+@@ -34,7 +34,7 @@
+ class Context;
+ 
+ struct CommandLineConfiguration {
+-  clang::InputKind::Language language = clang::InputKind::Unknown;
++  clang::Language language = clang::Language::Unknown;
+   std::string std;
+   std::string isysroot;
+   std::string publicUmbrellaHeaderPath;
+@@ -73,7 +73,7 @@
+   std::string getSysRoot() const;
+   void setRootPath(StringRef root) { rootPath = root.str(); }
+ 
+-  clang::InputKind::Language getLanguage(StringRef path) const;
++  clang::Language getLanguage(StringRef path) const;
+   std::vector<Macro> getMacros(StringRef path) const;
+   PathSeq getIncludePaths(StringRef path) const;
+   PathSeq getFrameworkPaths(StringRef path) const;
+--- a/include/tapi/Driver/ConfigurationFile.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Driver/ConfigurationFile.h	2020-12-19 15:49:56.000000000 +0100
+@@ -29,8 +29,8 @@
+ TAPI_NAMESPACE_INTERNAL_BEGIN
+ 
+ using Macro = std::pair<std::string, bool>;
+-static const clang::InputKind::Language defaultLanguage =
+-    clang::InputKind::ObjC;
++static const clang::Language defaultLanguage =
++    clang::Language::ObjC;
+ 
+ namespace configuration {
+ namespace v1 {
+@@ -46,7 +46,7 @@
+   std::string name;
+   std::string path;
+   std::string installName;
+-  clang::InputKind::Language language;
++  clang::Language language;
+   PathSeq includePaths;
+   PathSeq frameworkPaths;
+   std::vector<Macro> macros;
+@@ -56,7 +56,7 @@
+ 
+ struct ProjectConfiguration {
+   std::string name;
+-  clang::InputKind::Language language;
++  clang::Language language;
+   PathSeq includePaths;
+   PathSeq frameworkPaths;
+   std::vector<Macro> macros;
+@@ -75,7 +75,7 @@
+   Platform platform;
+   PackedVersion version;
+   std::string isysroot;
+-  clang::InputKind::Language language{defaultLanguage};
++  clang::Language language{defaultLanguage};
+   PathSeq includePaths;
+   PathSeq frameworkPaths;
+   std::vector<Macro> macros;
+--- a/tools/tapi-api-verifier/tapi-api-verifier.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/tools/tapi-api-verifier/tapi-api-verifier.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -41,13 +41,13 @@
+ 
+ static cl::OptionCategory tapiCategory("tapi-frontend options");
+ 
+-static cl::opt<clang::InputKind::Language> languageKind(
+-    "x", cl::init(clang::InputKind::ObjC),
++static cl::opt<clang::Language> languageKind(
++    "x", cl::init(clang::Language::ObjC),
+     cl::desc("set input language kind: c, c++, objc, objc++"),
+-    cl::values(clEnumValN(clang::InputKind::C, "c", "C"),
+-               clEnumValN(clang::InputKind::CXX, "c++", "C++"),
+-               clEnumValN(clang::InputKind::ObjC, "objc", "Objective-C"),
+-               clEnumValN(clang::InputKind::ObjCXX, "objc++", "Objective-C++")),
++    cl::values(clEnumValN(clang::Language::C, "c", "C"),
++               clEnumValN(clang::Language::CXX, "c++", "C++"),
++               clEnumValN(clang::Language::ObjC, "objc", "Objective-C"),
++               clEnumValN(clang::Language::ObjCXX, "objc++", "Objective-C++")),
+     cl::cat(tapiCategory));
+ 
+ static cl::opt<std::string> language_std("std",
+--- a/lib/Driver/Options.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/Options.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -761,14 +761,14 @@
+   // Handle language option.
+   if (auto *arg = args.getLastArg(OPT_x)) {
+     frontendOptions.language =
+-        StringSwitch<clang::InputKind::Language>(arg->getValue())
+-            .Case("c", clang::InputKind::C)
+-            .Case("c++", clang::InputKind::CXX)
+-            .Case("objective-c", clang::InputKind::ObjC)
+-            .Case("objective-c++", clang::InputKind::ObjCXX)
+-            .Default(clang::InputKind::Unknown);
++        StringSwitch<clang::Language>(arg->getValue())
++            .Case("c", clang::Language::C)
++            .Case("c++", clang::Language::CXX)
++            .Case("objective-c", clang::Language::ObjC)
++            .Case("objective-c++", clang::Language::ObjCXX)
++            .Default(clang::Language::Unknown);
+ 
+-    if (frontendOptions.language == clang::InputKind::Unknown) {
++    if (frontendOptions.language == clang::Language::Unknown) {
+       diag.report(clang::diag::err_drv_invalid_value)
+           << arg->getAsString(args) << arg->getValue();
+       return false;
+@@ -778,9 +778,9 @@
+   // Handle ObjC/ObjC++ switch.
+   for (auto *arg : args.filtered(OPT_ObjC, OPT_ObjCXX)) {
+     if (arg->getOption().matches(OPT_ObjC))
+-      frontendOptions.language = clang::InputKind::ObjC;
++      frontendOptions.language = clang::Language::ObjC;
+     else
+-      frontendOptions.language = clang::InputKind::ObjCXX;
++      frontendOptions.language = clang::Language::ObjCXX;
+   }
+ 
+   // Handle language std.
+--- a/lib/Driver/Configuration.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/Configuration.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -168,8 +168,8 @@
+   return sysroot;
+ }
+ 
+-clang::InputKind::Language Configuration::getLanguage(StringRef path) const {
+-  if (commandLine.language != clang::InputKind::Unknown)
++clang::Language Configuration::getLanguage(StringRef path) const {
++  if (commandLine.language != clang::Language::Unknown)
+     return commandLine.language;
+ 
+   if (projectConfig)
+--- a/lib/Driver/ConfigurationFileReader.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/ConfigurationFileReader.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -102,7 +102,7 @@
+     io.mapOptional("sdk-platform", file.platform, Platform::unknown);
+     io.mapOptional("sdk-version", file.version);
+     io.mapOptional("sdk-root", file.isysroot);
+-    io.mapOptional("language", file.language, clang::InputKind::ObjC);
++    io.mapOptional("language", file.language, clang::Language::ObjC);
+     io.mapOptional("include-paths", file.includePaths);
+     io.mapOptional("framework-paths", file.frameworkPaths);
+     io.mapOptional("public-dylibs", file.publicDylibs);
+--- a/lib/Driver/ReexportDriver.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/ReexportDriver.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -37,8 +37,8 @@
+   }
+ 
+   // Set default language option.
+-  if (opts.frontendOptions.language == clang::InputKind::Unknown)
+-    opts.frontendOptions.language = clang::InputKind::ObjC;
++  if (opts.frontendOptions.language == clang::Language::Unknown)
++    opts.frontendOptions.language = clang::Language::ObjC;
+ 
+   // Only allow one target.
+   if (opts.frontendOptions.targets.size() > 1) {
+--- a/lib/Frontend/Frontend.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Frontend/Frontend.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -36,32 +36,32 @@
+ 
+ TAPI_NAMESPACE_INTERNAL_BEGIN
+ 
+-static StringRef getLanguageOptions(clang::InputKind::Language lang) {
++static StringRef getLanguageOptions(clang::Language lang) {
+   switch (lang) {
+   default:
+     return "";
+-  case clang::InputKind::C:
++  case clang::Language::C:
+     return "-xc";
+-  case clang::InputKind::CXX:
++  case clang::Language::CXX:
+     return "-xc++";
+-  case clang::InputKind::ObjC:
++  case clang::Language::ObjC:
+     return "-xobjective-c";
+-  case clang::InputKind::ObjCXX:
++  case clang::Language::ObjCXX:
+     return "-xobjective-c++";
+   }
+ }
+ 
+-static StringRef getFileExtension(clang::InputKind::Language lang) {
++static StringRef getFileExtension(clang::Language lang) {
+   switch (lang) {
+   default:
+     llvm_unreachable("Unexpected language option.");
+-  case clang::InputKind::C:
++  case clang::Language::C:
+     return ".c";
+-  case clang::InputKind::CXX:
++  case clang::Language::CXX:
+     return ".cpp";
+-  case clang::InputKind::ObjC:
++  case clang::Language::ObjC:
+     return ".m";
+-  case clang::InputKind::ObjCXX:
++  case clang::Language::ObjCXX:
+     return ".mm";
+   }
+ }
+@@ -73,7 +73,7 @@
+ }
+ 
+ static void addHeaderInclude(StringRef headerName,
+-                             clang::InputKind::Language lang,
++                             clang::Language lang,
+                              SmallVectorImpl<char> &includes) {
+   SmallString<PATH_MAX> name;
+   if (!(headerName.startswith("\"") && headerName.endswith("\"")) &&
+@@ -84,7 +84,7 @@
+   } else
+     name += headerName;
+ 
+-  if (lang == clang::InputKind::C || lang == clang::InputKind::CXX)
++  if (lang == clang::Language::C || lang == clang::Language::CXX)
+     includes += "#include ";
+   else
+     includes += "#import ";
+@@ -129,7 +129,7 @@
+ 
+ static bool runClang(FrontendContext &context, ArrayRef<std::string> options,
+                      std::unique_ptr<llvm::MemoryBuffer> input) {
+-  context.compiler = make_unique<CompilerInstance>();
++  context.compiler = std::make_unique<CompilerInstance>();
+   IntrusiveRefCntPtr<DiagnosticIDs> diagID(new DiagnosticIDs());
+   IntrusiveRefCntPtr<DiagnosticOptions> diagOpts(new DiagnosticOptions());
+   std::unique_ptr<llvm::opt::OptTable> opts = driver::createDriverOptTable();
+@@ -179,7 +179,7 @@
+   // Create a compiler instance to handle the actual work.
+   context.compiler->setInvocation(std::move(invocation));
+   context.compiler->setFileManager(&*(context.fileManager));
+-  auto action = make_unique<APIVisitorAction>(context);
++  auto action = std::make_unique<APIVisitorAction>(context);
+ 
+   // Create the compiler's actual diagnostics engine.
+   context.compiler->createDiagnostics();
+@@ -351,8 +351,8 @@
+   }
+ 
+   // For c++ and objective-c++, add default stdlib to be libc++.
+-  if (job.language == clang::InputKind::CXX ||
+-      job.language == clang::InputKind::ObjCXX)
++  if (job.language == clang::Language::CXX ||
++      job.language == clang::Language::ObjCXX)
+     args.emplace_back("-stdlib=libc++");
+ 
+   // Add extra clang arguments.
+--- a/include/tapi/Core/TextStubCommon.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Core/TextStubCommon.h	2020-12-19 15:27:56.000000000 +0100
+@@ -90,9 +90,9 @@
+   static QuotingType mustQuote(StringRef);
+ };
+ 
+-using clang::InputKind;
+-template <> struct ScalarEnumerationTraits<InputKind::Language> {
+-  static void enumeration(IO &io, InputKind::Language &kind);
++using clang::Language;
++template <> struct ScalarEnumerationTraits<Language> {
++  static void enumeration(IO &io, Language &kind);
+ };
+ 
+ } // end namespace yaml.
+--- a/lib/Core/TextStubCommon.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/TextStubCommon.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -197,17 +197,17 @@
+   return QuotingType::Single;
+ }
+ 
+-using clang::InputKind;
+-void ScalarEnumerationTraits<InputKind::Language>::enumeration(
+-    IO &io, InputKind::Language &kind) {
+-  io.enumCase(kind, "c", InputKind::C);
+-  io.enumCase(kind, "cxx", InputKind::CXX);
+-  io.enumCase(kind, "objective-c", InputKind::ObjC);
+-  io.enumCase(kind, "objc", InputKind::ObjC); // to keep old snapshots working.
+-  io.enumCase(kind, "objective-cxx", InputKind::ObjCXX);
++using clang::Language;
++void ScalarEnumerationTraits<Language>::enumeration(
++    IO &io, Language &kind) {
++  io.enumCase(kind, "c", Language::C);
++  io.enumCase(kind, "cxx", Language::CXX);
++  io.enumCase(kind, "objective-c", Language::ObjC);
++  io.enumCase(kind, "objc", Language::ObjC); // to keep old snapshots working.
++  io.enumCase(kind, "objective-cxx", Language::ObjCXX);
+   io.enumCase(kind, "objcxx",
+-              InputKind::ObjCXX); // to keep old snapshots working.
+-  io.enumCase(kind, "unknown", InputKind::Unknown);
++              Language::ObjCXX); // to keep old snapshots working.
++  io.enumCase(kind, "unknown", Language::Unknown);
+ }
+ 
+ } // end namespace yaml.
+--- a/include/tapi/Driver/Options.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Driver/Options.h	2020-12-19 15:27:56.000000000 +0100
+@@ -194,7 +194,7 @@
+   std::vector<llvm::Triple> targetVariants;
+ 
+   /// \brief Specify the language to use for parsing.
+-  clang::InputKind::Language language = clang::InputKind::Unknown;
++  clang::Language language = clang::Language::Unknown;
+ 
+   /// \brief Language standard to use for parsing.
+   std::string language_std;
+--- a/include/tapi/Frontend/Frontend.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Frontend/Frontend.h	2020-12-19 15:27:56.000000000 +0100
+@@ -30,7 +30,7 @@
+   IntrusiveRefCntPtr<FileSystemStatCacheFactory> cacheFactory;
+   IntrusiveRefCntPtr<llvm::vfs::FileSystem> vfs;
+   llvm::Triple target;
+-  clang::InputKind::Language language = clang::InputKind::Unknown;
++  clang::Language language = clang::Language::Unknown;
+   bool useRTTI = true;
+   bool enableModules = false;
+   bool validateSystemHeaders = false;
+--- a/lib/Driver/GenerateAPITestsDriver.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/GenerateAPITestsDriver.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -275,8 +275,8 @@
+   }
+ 
+   // Set default language option.
+-  if (opts.frontendOptions.language == clang::InputKind::Unknown)
+-    opts.frontendOptions.language = clang::InputKind::ObjC;
++  if (opts.frontendOptions.language == clang::Language::Unknown)
++    opts.frontendOptions.language = clang::Language::ObjC;
+ 
+   //
+   // Scan through the directories and create a list of all found frameworks.
+--- a/lib/Driver/InstallAPIDriver.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/InstallAPIDriver.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -568,8 +568,8 @@
+   }
+ 
+   // Set default language option.
+-  if (opts.frontendOptions.language == clang::InputKind::Unknown)
+-    opts.frontendOptions.language = clang::InputKind::ObjC;
++  if (opts.frontendOptions.language == clang::Language::Unknown)
++    opts.frontendOptions.language = clang::Language::ObjC;
+ 
+   // Handle install name.
+   if (opts.linkerOptions.installName.empty()) {
+

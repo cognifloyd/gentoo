@@ -1,0 +1,418 @@
+Explicit llvm::StringRef to std::string conversion
+
+LLVM 11 does not do implicit conversion from llvm::StringRef
+to std::string, so do so explicitly or prefer StringRef.
+
+--- a/lib/Core/ArchitectureSet.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/ArchitectureSet.cpp	2020-12-19 15:49:56.000000000 +0100
+@@ -60,7 +60,7 @@
+   std::string result;
+   auto size = count();
+   for (auto arch : *this) {
+-    result.append(getArchName(arch));
++    result.append(std::string(getArchName(arch)));
+     size -= 1;
+     if (size)
+       result.append(" ");
+--- a/lib/Core/FileListReader.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/FileListReader.cpp	2020-12-19 15:49:56.000000000 +0100
+@@ -34,7 +34,7 @@
+ public:
+   struct HeaderInfo {
+     HeaderType type;
+-    std::string path;
++    StringRef path;
+   };
+ 
+   std::unique_ptr<MemoryBuffer> inputBuffer;
+
+--- a/include/tapi/Core/InterfaceFile.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Core/InterfaceFile.h	2020-12-19 15:49:56.000000000 +0100
+@@ -164,7 +164,7 @@
+       : _symbols(std::move(symbols)) {}
+ 
+   template <typename T> void setPath(T &&path) {
+-    _path = std::forward<T &&>(path);
++    _path = std::string(std::forward<T &&>(path));
+   }
+   const std::string &getPath() const { return _path; }
+ 
+@@ -207,7 +207,7 @@
+     return mapToArchitectureSet(_targets);
+   }
+ 
+-  void setInstallName(StringRef installName) { _installName = installName; }
++  void setInstallName(StringRef installName) { _installName = std::string(installName); }
+   StringRef getInstallName() const { return _installName; }
+ 
+   void setCurrentVersion(PackedVersion version) { _currentVersion = version; }
+@@ -233,7 +233,7 @@
+   bool isInstallAPI() const { return _isInstallAPI; }
+ 
+   void addParentUmbrella(const Target &target, StringRef parent);
+-  const std::vector<std::pair<Target, std::string>> &umbrellas() const {
++  const std::vector<std::pair<Target, StringRef>> &umbrellas() const {
+     return _parentUmbrellas;
+   }
+ 
+@@ -249,7 +249,7 @@
+ 
+   void addUUID(const Target &target, StringRef uuid);
+   void addUUID(const Target &target, uint8_t uuid[16]);
+-  const std::vector<std::pair<Target, std::string>> &uuids() const {
++  const std::vector<std::pair<Target, StringRef>> &uuids() const {
+     return _uuids;
+   }
+   void clearUUIDs() { _uuids.clear(); }
+@@ -324,10 +324,10 @@
+   bool _isTwoLevelNamespace{false};
+   bool _isAppExtensionSafe{false};
+   bool _isInstallAPI{false};
+-  std::vector<std::pair<Target, std::string>> _parentUmbrellas;
++  std::vector<std::pair<Target, StringRef>> _parentUmbrellas;
+   std::vector<InterfaceFileRef> _allowableClients;
+   std::vector<InterfaceFileRef> _reexportedLibraries;
+-  std::vector<std::pair<Target, std::string>> _uuids;
++  std::vector<std::pair<Target, StringRef>> _uuids;
+   std::unique_ptr<XPISet> _symbols;
+   std::string _path;
+   // The backing store this file was derived from. We use this as context for
+--- a/lib/Core/InterfaceFile.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/InterfaceFile.cpp	2020-12-19 15:49:56.000000000 +0100
+@@ -148,7 +148,7 @@
+   if (umbrella.empty())
+     return;
+   auto it = lower_bound(_parentUmbrellas, target,
+-                        [](const std::pair<Target, std::string> &lhs,
++                        [](const std::pair<Target, StringRef> &lhs,
+                            Target rhs) { return lhs.first < rhs; });
+ 
+   if ((it != _parentUmbrellas.end()) && !(target < it->first)) {
+@@ -162,7 +162,7 @@
+ 
+ void InterfaceFile::addUUID(const Target &target, StringRef uuid) {
+   auto it = lower_bound(_uuids, target,
+-                        [](const std::pair<Target, std::string> &lhs,
++                        [](const std::pair<Target, StringRef> &lhs,
+                            Target rhs) { return lhs.first < rhs; });
+ 
+   if ((it != _uuids.end()) && !(target < it->first)) {
+@@ -189,7 +189,7 @@
+   auto addFramework = [&](std::shared_ptr<InterfaceFile> &&framework) {
+     auto it = lower_bound(
+         _documents, framework->getInstallName(),
+-        [](std::shared_ptr<InterfaceFile> &lhs, const std::string &rhs) {
++        [](std::shared_ptr<InterfaceFile> &lhs, const StringRef &rhs) {
+           return lhs->getInstallName() < rhs;
+         });
+ 
+--- a/lib/Core/InterfaceFileManager.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/InterfaceFileManager.cpp	2020-12-19 15:49:56.000000000 +0100
+@@ -44,11 +44,11 @@
+   if (!interface)
+     return interface.takeError();
+ 
+-  auto it = _libraries.find(interface.get()->getInstallName());
++  auto it = _libraries.find(std::string(interface.get()->getInstallName()));
+   if (it != _libraries.end())
+     return it->second.get();
+ 
+-  auto result = _libraries.emplace(interface.get()->getInstallName(),
++  auto result = _libraries.emplace(std::string(interface.get()->getInstallName()),
+                                    std::move(interface.get()));
+   return result.first->second.get();
+ }
+--- a/include/tapi/Driver/Configuration.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Driver/Configuration.h	2020-12-19 15:49:56.000000000 +0100
+@@ -43,7 +43,7 @@
+   std::string clangResourcePath;
+   PathSeq includePaths;
+   PathSeq frameworkPaths;
+-  std::vector<std::pair<std::string, bool /*isUndef*/>> macros;
++  std::vector<std::pair<StringRef, bool /*isUndef*/>> macros;
+   std::vector<std::string> clangExtraArgs;
+   PathSeq extraPublicHeaders;
+   PathSeq extraPrivateHeaders;
+@@ -96,7 +96,7 @@
+   bool isiOSMac = false;
+   bool isDriverKit = false;
+   ConfigurationFile file;
+-  std::map<std::string, const configuration::v1::FrameworkConfiguration *>
++  std::map<StringRef, const configuration::v1::FrameworkConfiguration *>
+       pathToConfig;
+   std::unique_ptr<configuration::v1::ProjectConfiguration> projectConfig;
+   std::string rootPath;
+--- a/include/tapi/Driver/ConfigurationFile.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Driver/ConfigurationFile.h	2020-12-19 15:49:56.000000000 +0100
+@@ -28,7 +28,7 @@
+ 
+ TAPI_NAMESPACE_INTERNAL_BEGIN
+ 
+-using Macro = std::pair<std::string, bool>;
++using Macro = std::pair<StringRef, bool>;
+ static const clang::Language defaultLanguage =
+     clang::Language::ObjC;
+ 
+--- a/lib/Driver/Configuration.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/Configuration.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -161,7 +161,7 @@
+       auto path = i->path();
+       auto name = llvm::sys::path::filename(path);
+       if (name.startswith("DriverKit") && name.endswith("Internal.sdk"))
+-        sysroot = path;
++        sysroot = std::string(path);
+     }
+   }
+ 
+--- a/lib/Driver/ConfigurationFileReader.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/ConfigurationFileReader.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -41,12 +41,12 @@
+ 
+   static StringRef input(StringRef scalar, void * /*unused*/, Macro &value) {
+     if (scalar.startswith("-D")) {
+-      value = std::make_pair(scalar.drop_front(2), false);
++      value = Macro(scalar.drop_front(2), false);
+       return {};
+     }
+ 
+     if (scalar.startswith("-U")) {
+-      value = std::make_pair(scalar.drop_front(2), true);
++      value = Macro(scalar.drop_front(2), true);
+       return {};
+     }
+ 
+--- a/lib/Core/Platform.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/Platform.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -160,7 +160,7 @@
+   for (auto platform : platforms) {
+     if (index > 0)
+       diagString.append(", ");
+-    diagString.append(getPlatformName(platform));
++    diagString.append(std::string(getPlatformName(platform)));
+     ++index;
+   }
+   diagString.append(" ]");
+--- a/include/tapi/Core/TextStubCommon.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Core/TextStubCommon.h	2020-12-19 15:27:56.000000000 +0100
+@@ -25,7 +25,7 @@
+ #include "llvm/ADT/StringSwitch.h"
+ #include "llvm/Support/YAMLTraits.h"
+ 
+-using UUID = std::pair<TAPI_INTERNAL::Target, std::string>;
++using UUID = std::pair<TAPI_INTERNAL::Target, llvm::StringRef>;
+ 
+ LLVM_YAML_STRONG_TYPEDEF(llvm::StringRef, FlowStringRef)
+ LLVM_YAML_STRONG_TYPEDEF(uint8_t, SwiftVersion)
+--- a/include/tapi/Driver/Options.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Driver/Options.h	2020-12-19 15:27:56.000000000 +0100
+@@ -30,7 +30,7 @@
+ 
+ class Snapshot;
+ 
+-using Macro = std::pair<std::string, bool /*isUndef*/>;
++using Macro = std::pair<StringRef, bool /*isUndef*/>;
+ 
+ /// \brief A list of supported TAPI commands.
+ enum class TAPICommand : unsigned {
+--- a/include/tapi/Frontend/Frontend.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Frontend/Frontend.h	2020-12-19 15:27:56.000000000 +0100
+@@ -43,7 +43,7 @@
+   std::string isysroot;
+   std::string moduleCachePath;
+   std::string clangResourcePath;
+-  std::vector<std::pair<std::string, bool /*isUndef*/>> macros;
++  std::vector<std::pair<StringRef, bool /*isUndef*/>> macros;
+   HeaderSeq headerFiles;
+   PathSeq systemFrameworkPaths;
+   PathSeq systemIncludePaths;
+--- a/include/tapi/Core/Path.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Core/Path.h	2020-12-19 15:27:56.000000000 +0100
+@@ -27,7 +27,7 @@
+ 
+ class FileManager;
+ 
+-using PathSeq = std::vector<std::string>;
++using PathSeq = std::vector<StringRef>;
+ 
+ void replace_extension(SmallVectorImpl<char> &path, const Twine &extension);
+ 
+--- a/lib/Driver/StubDriver.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/StubDriver.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -253,7 +253,7 @@
+   std::map<std::string, std::vector<detail::SymlinkInfo>> symlinks;
+   std::map<std::string, std::unique_ptr<InterfaceFile>> dylibs;
+   std::map<std::string, std::string> originalNames;
+-  std::set<std::pair<std::string, bool>> toDelete;
++  std::set<std::pair<StringRef, bool>> toDelete;
+   std::error_code ec;
+   for (sys::fs::recursive_directory_iterator i(ctx.inputPath, ec), ie; i != ie;
+        i.increment(ec)) {
+--- a/lib/Driver/GenerateAPITestsDriver.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/GenerateAPITestsDriver.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -118,7 +118,7 @@
+ 
+   auto frameworkName = sys::path::stem(framework.getName());
+   if (umbrellaFramework.empty())
+-    umbrellaFramework = frameworkName;
++    umbrellaFramework = std::string(frameworkName);
+   for (auto &sub : framework._subFrameworks) {
+     if (!emitJSON(sub, isysroot, target, os, n, umbrellaFramework))
+       return false;
+--- a/lib/Core/Utils.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/Utils.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -88,10 +88,10 @@
+       SmallString<PATH_MAX> tbdPath = fullPath;
+       TAPI_INTERNAL::replace_extension(tbdPath, ".tbd");
+       if (fm.exists(tbdPath))
+-        return tbdPath.str();
++        return std::string(tbdPath);
+ 
+       if (fm.exists(fullPath))
+-        return fullPath.str();
++        return std::string(fullPath);
+     }
+   } else {
+     // Copy ld64's behavior: If this is a .dylib inside a framework, do not
+@@ -107,10 +107,10 @@
+         TAPI_INTERNAL::replace_extension(tbdPath, ".tbd");
+ 
+         if (fm.exists(tbdPath))
+-          return tbdPath.str();
++          return std::string(tbdPath);
+ 
+         if (fm.exists(fullPath))
+-          return fullPath.str();
++          return std::string(fullPath);
+       }
+     }
+   }
+@@ -123,10 +123,10 @@
+     TAPI_INTERNAL::replace_extension(tbdPath, ".tbd");
+ 
+     if (fm.exists(tbdPath))
+-      return tbdPath.str();
++      return std::string(tbdPath);
+ 
+     if (fm.exists(fullPath))
+-      return fullPath.str();
++      return std::string(fullPath);
+   }
+ 
+   return std::string();
+--- a/lib/Core/XPI.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/XPI.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -40,11 +40,11 @@
+ 
+ std::string XPI::getPrettyName(bool demangle) const {
+   if (!demangle)
+-    return _name;
++    return std::string(_name);
+ 
+   if (demangle && _name.startswith("__Z")) {
+     int status = 0;
+-    char *demangledName = itaniumDemangle(_name.substr(1).str().c_str(),
++    char *demangledName = itaniumDemangle(std::string(_name).substr(1).c_str(),
+                                           nullptr, nullptr, &status);
+     if (status == 0) {
+       std::string result = demangledName;
+@@ -54,9 +54,9 @@
+   }
+ 
+   if (_name[0] == '_')
+-    return _name.substr(1);
++    return std::string(_name).substr(1);
+ 
+-  return _name;
++  return std::string(_name);
+ }
+ 
+ std::string XPI::getAnnotatedName(bool demangle) const {
+@@ -71,11 +71,11 @@
+   case XPIKind::GlobalSymbol:
+     return name + getPrettyName(demangle);
+   case XPIKind::ObjectiveCClass:
+-    return name + "(ObjC Class) " + _name.str();
++    return name + "(ObjC Class) " + std::string(_name);
+   case XPIKind::ObjectiveCClassEHType:
+-    return name + "(ObjC Class EH) " + _name.str();
++    return name + "(ObjC Class EH) " + std::string(_name);
+   case XPIKind::ObjectiveCInstanceVariable:
+-    return name + "(ObjC IVar) " + _name.str();
++    return name + "(ObjC IVar) " + std::string(_name);
+   }
+ }
+ 
+--- a/lib/Core/TextStubv4.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/TextStubv4.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -187,7 +187,7 @@
+       targets.insert(targets.begin(), file->targets().begin(),
+                      file->targets().end());
+       for (const auto &it : file->uuids())
+-        uuids.emplace_back(it.first, it.second);
++        uuids.emplace_back(it.first, std::string(it.second));
+       installName = file->getInstallName();
+       currentVersion = file->getCurrentVersion();
+       compatibilityVersion = file->getCompatibilityVersion();
+@@ -205,7 +205,7 @@
+ 
+       {
+         using TargetList = SmallVector<Target, 4>;
+-        std::map<std::string, TargetList> valueToTargetList;
++        std::map<StringRef, TargetList> valueToTargetList;
+         for (const auto &it : file->umbrellas())
+           valueToTargetList[it.second].emplace_back(it.first);
+ 
+@@ -213,7 +213,7 @@
+           UmbrellaSection section;
+           section.targets.insert(section.targets.begin(), it.second.begin(),
+                                  it.second.end());
+-          section.umbrella = it.first;
++          section.umbrella = std::string(it.first);
+           parentUmbrellas.emplace_back(std::move(section));
+         }
+       }
+--- a/lib/Core/YAMLReaderWriter.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/YAMLReaderWriter.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -61,7 +61,7 @@
+                        diag.getRanges(), diag.getFixIts());
+ 
+   newdiag.print(nullptr, s);
+-  file->errorMessage = message.str();
++  file->errorMessage = std::string(message);
+ }
+ 
+ bool YAMLBase::canRead(MemoryBufferRef memBufferRef, FileType types) const {
+@@ -113,7 +113,7 @@
+                      ReadFlags readFlags, ArchitectureSet arches) const {
+   // Create YAML Input Reader.
+   YAMLContext ctx(*this);
+-  ctx.path = memBuffer->getBufferIdentifier();
++  ctx.path = std::string(memBuffer->getBufferIdentifier());
+   ctx.readFlags = readFlags;
+   llvm::yaml::Input yin(memBuffer->getBuffer(), &ctx, DiagHandler, &ctx);
+ 
+--- a/include/tapi/Driver/Snapshot.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Driver/Snapshot.h	2020-12-19 15:49:56.000000000 +0100
+@@ -54,10 +54,10 @@
+   void recordRawArguments(ArrayRef<const char *> args);
+ 
+   /// \brief Sets the name of the snapshot.
+-  void setName(StringRef name) { this->name = name; }
++  void setName(StringRef name) { this->name = std::string(name); }
+ 
+   /// \brief Specify the directory where to store the snapshot.
+-  void setRootPath(StringRef path) { rootPath = path; }
++  void setRootPath(StringRef path) { rootPath = std::string(path); }
+ 
+   /// \brief Record all the options.
+   ///
+@@ -94,7 +94,7 @@
+   }
+ 
+   /// \brief Set current working directory.
+-  void setWorkingDirectory(StringRef path) { workingDirectory = path; }
++  void setWorkingDirectory(StringRef path) { workingDirectory = std::string(path); }
+ 
+   StringRef getWorkingDirectory() { return workingDirectory; }
+ 
+

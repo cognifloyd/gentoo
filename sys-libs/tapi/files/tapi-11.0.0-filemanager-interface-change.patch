@@ -1,0 +1,237 @@
+handle new FileManager API using ErrorOr
+
+LLVM 10+ changed the signature for getDirectory() and
+similar to return ErrorOr instead of null. Adjust for that.
+
+--- a/include/tapi/Core/FileManager.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Core/FileManager.h	2020-12-19 15:49:56.000000000 +0100
+@@ -54,7 +54,7 @@
+ 
+   /// \brief Check if a particular path is a directory.
+   bool isDirectory(StringRef path, bool CacheFailure = true) {
+-    return getDirectory(path, CacheFailure) != nullptr;
++    return !!getDirectory(path, CacheFailure);
+   }
+ 
+   /// \brief Check if a particular path is a symlink using directory_iterator.
+--- a/lib/Core/InterfaceFileManager.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/InterfaceFileManager.cpp	2020-12-19 15:49:56.000000000 +0100
+@@ -30,12 +30,12 @@
+ 
+ Expected<InterfaceFile *>
+ InterfaceFileManager::readFile(const std::string &path) {
+-  auto *file = _fm.getFile(path);
+-  if (file == nullptr)
++  auto file = _fm.getFile(path);
++  if (!file)
+     return errorCodeToError(
+         std::make_error_code(std::errc::no_such_file_or_directory));
+ 
+-  auto bufferOrErr = _fm.getBufferForFile(file);
++  auto bufferOrErr = _fm.getBufferForFile(*file);
+   if (!bufferOrErr)
+     return errorCodeToError(bufferOrErr.getError());
+ 
+--- a/tools/tapi-api-verifier/tapi-api-verifier.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/tools/tapi-api-verifier/tapi-api-verifier.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -185,7 +185,7 @@
+ 
+   if (fm.isDirectory(path, /*CacheFailure=*/false)) {
+     SmallString<PATH_MAX> normalizedPath(path);
+-    fm.getVirtualFileSystem()->makeAbsolute(normalizedPath);
++    fm.getVirtualFileSystem().makeAbsolute(normalizedPath);
+     sys::path::remove_dots(normalizedPath, /*remove_dot_dot=*/true);
+     if (!scanner.scan(normalizedPath))
+       return false;
+--- a/lib/Core/Path.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/Path.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -54,7 +54,7 @@
+                const std::function<bool(StringRef)> &func) {
+   PathSeq files;
+   std::error_code ec;
+-  auto &fs = *fm.getVirtualFileSystem();
++  auto &fs = fm.getVirtualFileSystem();
+   for (llvm::vfs::recursive_directory_iterator i(fs, path, ec), ie; i != ie;
+        i.increment(ec)) {
+     if (ec)
+--- a/lib/Driver/DirectoryScanner.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/DirectoryScanner.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -91,9 +91,12 @@
+     sys::path::append(path, subDirectory);
+     return _fm.getDirectory(path, /*CacheFailure=*/false);
+   };
+-  const DirectoryEntry *directoryEntryPublic = getDirectory("usr/include");
+-  const DirectoryEntry *directoryEntryPrivate =
+-      getDirectory("usr/local/include");
++  const DirectoryEntry *directoryEntryPublic = nullptr;
++  if (auto dirPublicOrErr = getDirectory("usr/include"))
++    directoryEntryPublic = *dirPublicOrErr;
++  const DirectoryEntry *directoryEntryPrivate = nullptr;
++  if (auto dirPrivateOrErr = getDirectory("usr/local/include"))
++    directoryEntryPrivate = *dirPrivateOrErr;
+ 
+   if (!directoryEntryPublic && !directoryEntryPrivate) {
+     diag.report(diag::err_cannot_find_header_dir) << directory;
+@@ -149,7 +149,7 @@
+ bool DirectoryScanner::scanFrameworksDirectory(
+     std::vector<Framework> &frameworks, StringRef directory) const {
+   std::error_code ec;
+-  auto &fs = *_fm.getVirtualFileSystem();
++  auto &fs = _fm.getVirtualFileSystem();
+   for (vfs::directory_iterator i = fs.dir_begin(directory, ec), ie; i != ie;
+        i.increment(ec)) {
+     auto path = i->path();
+@@ -208,7 +208,7 @@
+   // there is a Versions directory, then we have symlinks and directly proceed
+   // to the Versiosn folder.
+   std::error_code ec;
+-  auto &fs = *_fm.getVirtualFileSystem();
++  auto &fs = _fm.getVirtualFileSystem();
+ 
+   for (vfs::directory_iterator i = fs.dir_begin(path, ec), ie;
+        i != ie; i.increment(ec)) {
+@@ -292,7 +292,7 @@
+     return true;
+ 
+   std::error_code ec;
+-  auto &fs = *_fm.getVirtualFileSystem();
++  auto &fs = _fm.getVirtualFileSystem();
+   for (vfs::recursive_directory_iterator i(fs, path, ec), ie; i != ie;
+        i.increment(ec)) {
+     auto headerPath = i->path();
+@@ -323,7 +323,7 @@
+ bool DirectoryScanner::scanModules(Framework &framework,
+                                    StringRef _path) const {
+   std::error_code ec;
+-  auto &fs = *_fm.getVirtualFileSystem();
++  auto &fs = _fm.getVirtualFileSystem();
+   for (vfs::recursive_directory_iterator i(fs, _path, ec), ie; i != ie;
+        i.increment(ec)) {
+     auto path = i->path();
+@@ -350,7 +350,7 @@
+ bool DirectoryScanner::scanFrameworkVersionsDirectory(Framework &framework,
+                                                       StringRef path) const {
+   std::error_code ec;
+-  auto &fs = *_fm.getVirtualFileSystem();
++  auto &fs = _fm.getVirtualFileSystem();
+   for (vfs::directory_iterator i = fs.dir_begin(path, ec), ie; i != ie;
+        i.increment(ec)) {
+     auto path = i->path();
+@@ -384,7 +384,7 @@
+ bool DirectoryScanner::scanLibraryDirectory(Framework &framework,
+                                             StringRef path) const {
+   std::error_code ec;
+-  auto &fs = *_fm.getVirtualFileSystem();
++  auto &fs = _fm.getVirtualFileSystem();
+   for (vfs::directory_iterator i = fs.dir_begin(path, ec), ie; i != ie;
+        i.increment(ec)) {
+     auto path = i->path();
+@@ -502,7 +502,7 @@
+ 
+   // Scan the bundles and extensions in /System/Library.
+   std::error_code ec;
+-  auto &fs = *_fm.getVirtualFileSystem();
++  auto &fs = _fm.getVirtualFileSystem();
+   for (auto i = fs.dir_begin(getDirectory("System/Library", rootPath), ec);
+        i != vfs::directory_iterator(); i.increment(ec)) {
+     auto path = i->path();
+--- a/lib/Driver/InstallAPIDriver.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/InstallAPIDriver.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -704,7 +704,7 @@
+     for (const auto &path : inputPaths) {
+       if (fm.isDirectory(path, /*CacheFailure=*/false)) {
+         SmallString<PATH_MAX> normalizedPath(path);
+-        fm.getVirtualFileSystem()->makeAbsolute(normalizedPath);
++        fm.getVirtualFileSystem().makeAbsolute(normalizedPath);
+         sys::path::remove_dots(normalizedPath, /*remove_dot_dot=*/true);
+         if (!scanner.scan(normalizedPath))
+           return false;
+--- a/lib/Driver/Options.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/Options.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -1093,7 +1093,7 @@
+     SmallString<PATH_MAX> srcPath(header);
+ 
+     // Normalize path.
+-    if (fm.getVirtualFileSystem()->makeAbsolute(externalPath))
++    if (fm.getVirtualFileSystem().makeAbsolute(externalPath))
+       return;
+     sys::path::remove_dots(externalPath, /*remove_dot_dot=*/true);
+     sys::path::replace_path_prefix(srcPath, clangResourcePath,
+@@ -1156,13 +1156,13 @@
+ 
+     fm = new FileManager(
+         clang::FileSystemOptions{globalSnapshot->getWorkingDirectory()},
+-        newFileSystemStatCacheFactory<StatRecorder>(), fs);
++        newFileSystemStatCacheFactory<StatRecorder>(), &fs);
+   } else {
+     if (snapshotOptions.snapshotMode == SnapshotMode::ForceCreate)
+       globalSnapshot->requestSnapshot();
+ 
+     globalSnapshot->setWorkingDirectory(
+-        fm->getVirtualFileSystem()->getCurrentWorkingDirectory().get());
++        fm->getVirtualFileSystem().getCurrentWorkingDirectory().get());
+   }
+ 
+   // This has to happen after processing the snapshot options, but before all
+--- a/lib/Driver/DriverUtils.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/DriverUtils.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -28,7 +28,7 @@
+                                       DiagnosticsEngine &diag, StringRef path,
+                                       HeaderType type) {
+   std::error_code ec;
+-  auto &fs = *fm.getVirtualFileSystem();
++  auto &fs = fm.getVirtualFileSystem();
+   for (vfs::directory_iterator i = fs.dir_begin(path, ec), ie; i != ie;
+        i.increment(ec)) {
+     auto path = i->path();
+--- a/lib/Driver/Configuration.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Driver/Configuration.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -155,8 +155,8 @@
+     auto platformSDKPath = llvm::sys::path::parent_path(sysroot);
+     // Search platformSDKPath to see if there is "DriverKit*.Internal.sdk".
+     std::error_code ec;
+-    auto fs = context.getFileManager().getVirtualFileSystem();
+-    for (auto i = fs->dir_begin(platformSDKPath, ec);
++    auto &fs = context.getFileManager().getVirtualFileSystem();
++    for (auto i = fs.dir_begin(platformSDKPath, ec);
+          i != llvm::vfs::directory_iterator(); i.increment(ec)) {
+       auto path = i->path();
+       auto name = llvm::sys::path::filename(path);
+--- a/lib/Frontend/Frontend.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Frontend/Frontend.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -217,7 +217,7 @@
+ extern Optional<FrontendContext> runFrontend(const FrontendJob &job,
+                                              StringRef inputFilename) {
+   FrontendContext context(job.target, job.workingDirectory, job.cacheFactory,
+-                          job.vfs);
++                          &job.vfs);
+ 
+   std::unique_ptr<llvm::MemoryBuffer> input;
+   std::string inputFilePath;
+--- a/include/tapi/Driver/Driver.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Driver/Driver.h	2020-12-19 15:27:56.000000000 +0100
+@@ -19,10 +19,6 @@
+ #include "tapi/Diagnostics/Diagnostics.h"
+ #include "llvm/ADT/IntrusiveRefCntPtr.h"
+ 
+-namespace llvm {
+-raw_ostream &errs();
+-}
+-
+ TAPI_NAMESPACE_INTERNAL_BEGIN
+ 
+ class Options;
+--- a/include/tapi/Diagnostics/Diagnostics.h	2020-12-19 15:27:56.000000000 +0100
++++ b/include/tapi/Diagnostics/Diagnostics.h	2020-12-19 15:27:56.000000000 +0100
+@@ -19,10 +19,6 @@
+ #include "llvm/ADT/DenseMap.h"
+ #include "llvm/ADT/IntrusiveRefCntPtr.h"
+ 
+-namespace llvm {
+-raw_ostream &errs();
+-}
+-
+ TAPI_NAMESPACE_INTERNAL_BEGIN
+ 
+ namespace diag {
+

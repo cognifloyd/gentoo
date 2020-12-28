@@ -1,0 +1,152 @@
+Tune CMakeLists for out-of-tree build.
+
+As these clang targets are already complete and installed,
+do not DEPEND on them during tapi build:
+* clang-headers
+* ClangDriverOptions: a public_tablegen_target that builds
+  EPREFIX/usr/lib/llvm/11/include/clang/Driver/Options.inc
+
+Several issues with target_link_libraries specifying a keyword,
+and the LLVM headers already use a keyword, so ensure all of
+them use the PRIVATE keyword.
+
+Plus a few other misc fixes
+
+--- a/CMakeLists.txt	2017-12-24 15:27:56.000000000 +0100
++++ b/CMakeLists.txt	2017-12-26 15:50:01.199506782 +0100
+@@ -1,7 +1,28 @@
++cmake_minimum_required(VERSION 3.18.0)
+ if(NOT APPLE)
+   message(FATAL_ERROR "Unsupported configuration.")
+ endif()
+ 
++project(tapi)
++set(PACKAGE_VENDOR Apple CACHE STRING "")
++add_definitions(-DTAPI_BUG_REPORT_URL="https://bugs.gentoo.org/")
++
++find_package(LLVM REQUIRED CONFIG)
++list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})
++include(AddLLVM)
++include(CheckLinkerFlag)
++include(CheckCCompilerFlag)
++
++add_definitions(${LLVM_DEFINITIONS})
++include_directories(${LLVM_INCLUDE_DIRS})
++link_directories(${LLVM_LIBRARY_DIRS})
++
++# make tblgen happy
++include(TableGen)
++foreach(IPATH ${LLVM_INCLUDE_DIRS})
++  list(APPEND LLVM_TABLEGEN_FLAGS -I ${IPATH})
++endforeach(IPATH)
++
+ set(TAPI_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+ set(TAPI_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+ 
+--- a/lib/Driver/Snapshot.cpp	2017-12-24 15:27:56.000000000 +0100
++++ b/lib/Driver/Snapshot.cpp	2017-12-26 15:49:09.864184826 +0100
+@@ -15,7 +15,7 @@
+ #include "tapi/Defines.h"
+ #include "clang/Frontend/FrontendOptions.h"
+ #include "llvm/ADT/ArrayRef.h"
+-#include "llvm/Config/config.h"
++#include "llvm/Config/llvm-config.h"
+ #include "llvm/Support/FileSystem.h"
+ #include "llvm/Support/Format.h"
+ #include "llvm/Support/raw_ostream.h"
+@@ -484,7 +484,7 @@
+   }
+ 
+   if (isCrash) {
+-    outs() << "PLEASE submit a bug report to " BUG_REPORT_URL
++    outs() << "PLEASE submit a bug report to " TAPI_BUG_REPORT_URL
+               " and include the "
+               "crash backtrace and snapshot.\n\n"
+               "********************************************************\n\n"
+
+--- a/lib/Frontend/CMakeLists.txt	2017-12-24 15:27:56.000000000 +0100
++++ b/lib/Frontend/CMakeLists.txt	2017-12-26 15:49:09.864184826 +0100
+@@ -8,9 +8,6 @@
+   Frontend.cpp
+   FrontendContext.cpp
+ 
+-  DEPENDS
+-  ClangDriverOptions
+-
+   LINK_LIBS
+   clangFrontend
+   tapiDiagnostics
+--- a/tools/tapi/CMakeLists.txt	2020-12-19 15:27:56.000000000 +0100
++++ b/tools/tapi/CMakeLists.txt	2020-12-19 15:49:09.864184826 +0100
+@@ -4,7 +4,7 @@
+   COMPONENT tapi-clang-headers
+   )
+ 
+-add_custom_target(tapi-clang-headers ALL DEPENDS clang-headers)
++add_custom_target(tapi-clang-headers ALL)
+ add_llvm_install_targets(install-tapi-clang-headers
+                          DEPENDS tapi-clang-headers
+                          COMPONENT tapi-clang-headers)
+@@ -16,6 +16,7 @@
+   )
+ 
+ target_link_libraries(tapi
++  PRIVATE
+   tapiDriver
+   )
+ 
+--- a/tools/tapi-import/CMakeLists.txt	2020-12-19 15:27:56.000000000 +0100
++++ b/tools/tapi-import/CMakeLists.txt	2020-12-19 15:49:09.864184826 +0100
+@@ -5,6 +5,7 @@
+   )
+ 
+ target_link_libraries(tapi-import
++  PRIVATE
+   tapiCore
+   )
+ 
+--- a/tools/tapi-run/CMakeLists.txt	2020-12-19 15:27:56.000000000 +0100
++++ b/tools/tapi-run/CMakeLists.txt	2020-12-19 15:49:09.864184826 +0100
+@@ -5,6 +5,7 @@
+   )
+ 
+ target_link_libraries(tapi-run
++  PRIVATE
+   tapiCore
+   libtapi
+   )
+--- a/lib/Core/MachOReader.cpp	2020-12-19 15:27:56.000000000 +0100
++++ b/lib/Core/MachOReader.cpp	2020-12-19 15:27:56.000000000 +0100
+@@ -161,11 +161,17 @@
+ 
+   for (auto &section : object->sections()) {
+     StringRef sectionName;
+-    section.getName(sectionName);
++    if (Expected<StringRef> sectionNameOrErr = section.getName())
++      sectionName = *sectionNameOrErr;
++    else
++      return sectionNameOrErr.takeError();
+     if (sectionName != "__objc_imageinfo" && sectionName != "__image_info")
+       continue;
+     StringRef content;
+-    section.getContents(content);
++    if (Expected<StringRef> contentOrErr = section.getContents())
++      content = *contentOrErr;
++    else
++      return contentOrErr.takeError();
+     if ((content.size() >= 8) && (content[0] == 0)) {
+       uint32_t flags;
+       if (object->isLittleEndian()) {
+@@ -226,7 +231,10 @@
+ 
+ static Error readUndefinedSymbols(MachOObjectFile *object, API &api) {
+   for (const auto &symbol : object->symbols()) {
+-    auto symbolFlags = symbol.getFlags();
++    auto symbolFlagsOrErr = symbol.getFlags();
++    if (!symbolFlagsOrErr)
++      return symbolFlagsOrErr.takeError();
++    auto symbolFlags = *symbolFlagsOrErr;
+     if ((symbolFlags & BasicSymbolRef::SF_Global) == 0)
+       continue;
+     if ((symbolFlags & BasicSymbolRef::SF_Undefined) == 0)
+
